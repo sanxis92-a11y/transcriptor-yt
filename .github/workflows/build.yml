@@ -6,18 +6,21 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
 
-      - uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.14.3'
+      - name: Descargar Gradle 8.14.3
+        run: |
+          curl -fsSL --retry 6 --retry-delay 10 --retry-all-errors \
+            -o gradle.zip https://services.gradle.org/distributions/gradle-8.14.3-bin.zip
+          unzip -q gradle.zip -d "$HOME"
+          echo "$HOME/gradle-8.14.3/bin" >> "$GITHUB_PATH"
 
       - name: Compilar
         run: gradle assembleDebug --no-daemon
