@@ -39,6 +39,7 @@ import java.util.concurrent.Executors;
 public class MainActivity extends Activity {
 
     private static final int REQ_EXPORT = 42;
+    private static final int REQ_SEARCH = 43;
 
     private EditText urlInput;
     private Button goBtn, collBtn;
@@ -107,10 +108,12 @@ public class MainActivity extends Activity {
         top.setGravity(Gravity.CENTER_VERTICAL);
         TextView appTitle = new TextView(this);
         appTitle.setText("Transcriptor YT");
-        appTitle.setTextSize(22);
+        appTitle.setTextSize(18);
         appTitle.setTypeface(Typeface.DEFAULT_BOLD);
         appTitle.setTextColor(Color.parseColor("#202124"));
         top.addView(appTitle, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        top.addView(smallBtn("Buscar", v ->
+                startActivityForResult(new Intent(this, SearchActivity.class), REQ_SEARCH)));
         collBtn = smallBtn("Colección (0)", v -> showCollection());
         top.addView(collBtn);
         root.addView(top);
@@ -258,7 +261,7 @@ public class MainActivity extends Activity {
         exec.execute(() -> {
             try {
                 TranscriptFetcher.VideoInfo vi = TranscriptFetcher.getInfo(id);
-                int best = TranscriptFetcher.pickBest(vi.tracks, "es", "en");
+                int best = TranscriptFetcher.pickBest(vi.tracks, prefLang(), "es", "en");
                 List<TranscriptFetcher.Segment> s = TranscriptFetcher.fetchSegments(vi.tracks.get(best));
                 ui.post(() -> {
                     info = vi;
@@ -317,7 +320,7 @@ public class MainActivity extends Activity {
                 ui.post(() -> showStatus("Procesando " + n + " de " + ids.size() + "…", false));
                 try {
                     TranscriptFetcher.VideoInfo vi = TranscriptFetcher.getInfo(id);
-                    TranscriptFetcher.Track tr = vi.tracks.get(TranscriptFetcher.pickBest(vi.tracks, "es", "en"));
+                    TranscriptFetcher.Track tr = vi.tracks.get(TranscriptFetcher.pickBest(vi.tracks, prefLang(), "es", "en"));
                     String text = TranscriptFetcher.format(TranscriptFetcher.fetchSegments(tr), ts);
                     ui.post(() -> { collection.put(vi.id, vi.title, vi.author, tr.languageCode, text); updateCollBtn(); });
                     log.append("✓ ").append(vi.title).append('\n');
@@ -455,9 +458,32 @@ public class MainActivity extends Activity {
         return n.isEmpty() ? "transcripcion" : n;
     }
 
+    /** Idioma elegido en la pantalla de búsqueda (vacío = cualquiera). */
+    private String prefLang() {
+        int i = getSharedPreferences("ajustes", MODE_PRIVATE).getInt("idioma", 1);
+        String l = i < SearchActivity.LANG_CODES.length ? SearchActivity.LANG_CODES[i] : "";
+        return l.isEmpty() ? "es" : l;
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        collection = new Collection(this); // la búsqueda puede haber añadido transcripciones
+        updateCollBtn();
+    }
+
     @Override
     protected void onActivityResult(int req, int res, Intent data) {
         super.onActivityResult(req, res, data);
+        if (req == REQ_SEARCH) {
+            if (res == RESULT_OK && data != null
+                    && data.getBooleanExtra(SearchActivity.EXTRA_OPEN_COLLECTION, false)) {
+                collection = new Collection(this);
+                updateCollBtn();
+                showCollection();
+            }
+            return;
+        }
         if (req != REQ_EXPORT || res != RESULT_OK || data == null || data.getData() == null
                 || pendingItems == null) return;
         Uri uri = data.getData();

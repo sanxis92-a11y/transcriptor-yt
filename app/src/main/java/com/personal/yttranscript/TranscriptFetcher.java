@@ -179,6 +179,140 @@ public class TranscriptFetcher {
         return 0;
     }
 
+    /** Pista traducida automáticamente por YouTube al idioma indicado. */
+    public static Track translated(Track src, String lang, String langName) {
+        return new Track(src.baseUrl + "&tlang=" + lang, lang,
+                langName + " (traducido de " + src.name + ")", true);
+    }
+
+    // ---------- Transcripción completa de un vídeo (para lotes) ----------
+
+    public static class Result {
+        public final VideoInfo info;
+        public final Track track;
+        public final String text;
+        Result(VideoInfo info, Track track, String text) { this.info = info; this.track = track; this.text = text; }
+    }
+
+    /**
+     * @param lang idioma preferido ("" = cualquiera, se prefiere español/inglés)
+     * @param translate si no hay subtítulos en ese idioma, pedir traducción automática
+     */
+    public static Result transcribe(String videoId, String lang, String langName,
+                                    boolean timestamps, boolean translate) throws Exception {
+        VideoInfo vi = getInfo(videoId);
+        Track tr;
+        boolean hasLang = false;
+        if (!lang.isEmpty()) for (Track t : vi.tracks) if (t.languageCode.startsWith(lang)) hasLang = true;
+        if (lang.isEmpty()) tr = vi.tracks.get(pickBest(vi.tracks, "es", "en"));
+        else if (hasLang || !translate) tr = vi.tracks.get(pickBest(vi.tracks, lang, "es", "en"));
+        else tr = translated(vi.tracks.get(pickBest(vi.tracks, "es", "en")), lang, langName);
+        List<Segment> segs;
+        try {
+            segs = fetchSegments(tr);
+        } catch (Exception e) {
+            if (tr.baseUrl.contains("&tlang=")) { // si falla la traducción, el original
+                tr = vi.tracks.get(pickBest(vi.tracks, "es", "en"));
+                segs = fetchSegments(tr);
+            } else throw e;
+        }
+        return new Result(vi, tr, format(segs, timestamps));
+    }
+
+    // ---------- Búsqueda ----------
+
+    public static class SearchResult {
+        public final String videoId, title, channel, duration, published, views;
+        SearchResult(String videoId, String title, String channel, String duration, String published, String views) {
+            this.videoId = videoId; this.title = title; this.channel = channel;
+            this.duration = duration; this.published = published; this.views = views;
+        }
+    }
+
+    public static class SearchPage {
+        public final List<SearchResult> results;
+        public final String continuation; // null si no hay más
+        SearchPage(List<SearchResult> r, String c) { results = r; continuation = c; }
+    }
+
+    private static final String WEB_KEY = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8";
+
+    /**
+     * Filtros codificados como hace la web de YouTube (protobuf en base64).
+     * @param sort 0 relevancia, 2 fecha de subida, 3 visualizaciones
+     * @param date 0 cualquiera, 2 hoy, 3 semana, 4 mes, 5 año
+     * @param duration 0 cualquiera, 1 &lt;4 min, 3 4-20 min, 2 &gt;20 min
+     */
+    public static String searchParams(int sort, int date, int duration, boolean subtitles) {
+        java.io.ByteArrayOutputStream in = new java.io.ByteArrayOutputStream();
+        if (date > 0) { in.write(0x08); in.write(date); }
+        in.write(0x10); in.write(1); // solo vídeos
+        if (duration > 0) { in.write(0x18); in.write(duration); }
+        if (subtitles) { in.write(0x28); in.write(1); }
+        byte[] inner = in.toByteArray();
+        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+        if (sort > 0) { out.write(0x08); out.write(sort); }
+        out.write(0x12); out.write(inner.length);
+        out.write(inner, 0, inner.length);
+        return android.util.Base64.encodeToString(out.toByteArray(), android.util.Base64.NO_WRAP);
+    }
+
+    /** Primera página (query != null) o siguiente (continuation != null). */
+    public static SearchPage search(String query, String continuation, String params,
+                                    String hl, String gl) throws Exception {
+        JSONObject client = new JSONObject();
+        client.put("clientName", "WEB");
+        client.put("clientVersion", "2.20251105.01.00");
+        client.put("hl", hl.isEmpty() ? "es" : hl);
+        client.put("gl", gl.isEmpty() ? "ES" : gl);
+        JSONObject body = new JSONObject().put("context", new JSONObject().put("client", client));
+        if (continuation != null) body.put("continuation", continuation);
+        else {
+            body.put("query", query);
+            if (params != null) body.put("params", params);
+        }
+        String resp = httpPostJson("https://www.youtube.com/youtubei/v1/search?key=" + WEB_KEY
+                + "&prettyPrint=false", body.toString(), UA_WEB);
+        List<SearchResult> res = new ArrayList<>();
+        String[] cont = {null};
+        walk(new JSONObject(resp), res, cont);
+        return new SearchPage(res, cont[0]);
+    }
+
+    /** Recorre toda la respuesta buscando videoRenderer y el token de "más resultados". */
+    private static void walk(Object node, List<SearchResult> out, String[] cont) {
+        if (node instanceof JSONObject) {
+            JSONObject o = (JSONObject) node;
+            JSONObject vr = o.optJSONObject("videoRenderer");
+            if (vr != null && vr.has("videoId")) {
+                String id = vr.optString("videoId");
+                for (SearchResult r : out) if (r.videoId.equals(id)) return;
+                out.add(new SearchResult(id, text(vr.opt("title")), text(vr.opt("ownerText")),
+                        text(vr.opt("lengthText")), text(vr.opt("publishedTimeText")),
+                        text(vr.opt("shortViewCountText"))));
+                return;
+            }
+            JSONObject cc = o.optJSONObject("continuationCommand");
+            if (cc != null && cc.has("token")) cont[0] = cc.optString("token");
+            java.util.Iterator<String> it = o.keys();
+            while (it.hasNext()) walk(o.opt(it.next()), out, cont);
+        } else if (node instanceof JSONArray) {
+            JSONArray a = (JSONArray) node;
+            for (int i = 0; i < a.length(); i++) walk(a.opt(i), out, cont);
+        }
+    }
+
+    private static String text(Object o) {
+        if (!(o instanceof JSONObject)) return "";
+        JSONObject j = (JSONObject) o;
+        if (j.has("simpleText")) return j.optString("simpleText");
+        JSONArray runs = j.optJSONArray("runs");
+        if (runs == null) return "";
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < runs.length(); i++) sb.append(runs.optJSONObject(i).optString("text"));
+        return sb.toString();
+    }
+
     // ---------- Descarga y parseo del texto ----------
 
     public static List<Segment> fetchSegments(Track track) throws Exception {

@@ -7,6 +7,7 @@ App Android de uso personal: pegas un enlace de YouTube (o lo compartes desde la
 - Muestra el título y el canal del vídeo; al copiar, compartir o exportar el título va incluido.
 - **Colección**: ve añadiendo transcripciones con «+ Colección» (se guardan en el móvil aunque cierres la app).
 - **Varios enlaces a la vez**: pega uno por línea y se transcriben todos y se añaden a la colección.
+- **Buscar**: busca en YouTube (ej. «Fórmula 1») con filtros de idioma, fecha, duración, orden y «solo con subtítulos»; marca los vídeos y se transcriben todos a la colección (con traducción automática si no hay subtítulos en tu idioma).
 - **Exportar** una sola o toda la colección a **PDF** (índice + cada vídeo en su página con título) o **TXT**.
 
 ## Conseguir el APK sin instalar nada (GitHub Actions)
