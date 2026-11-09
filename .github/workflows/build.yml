@@ -20,8 +20,13 @@ jobs:
 
       - name: Descargar Gradle 8.14.3
         run: |
-          curl -fsSL --retry 6 --retry-delay 10 --retry-all-errors \
-            -o gradle.zip https://services.gradle.org/distributions/gradle-8.14.3-bin.zip
+          for url in \
+            https://services.gradle.org/distributions/gradle-8.14.3-bin.zip \
+            https://downloads.gradle.org/distributions/gradle-8.14.3-bin.zip \
+            https://services.gradle.org/distributions/gradle-8.14.3-bin.zip; do
+            curl -fsSL --retry 5 --retry-delay 15 --retry-all-errors -o gradle.zip "$url" && break
+            sleep 20
+          done
           unzip -q gradle.zip -d "$HOME"
           echo "$HOME/gradle-8.14.3/bin" >> "$GITHUB_PATH"
 
