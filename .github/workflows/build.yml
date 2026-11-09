@@ -4,6 +4,9 @@ on:
   push:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -29,3 +32,13 @@ jobs:
         with:
           name: TranscriptorYT-apk
           path: app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Publicar en Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk TranscriptorYT.apk
+          gh release delete ultima --yes --cleanup-tag || true
+          gh release create ultima TranscriptorYT.apk \
+            --title "Transcriptor YT (última versión)" \
+            --notes "APK compilado automáticamente desde ${{ github.sha }}"
